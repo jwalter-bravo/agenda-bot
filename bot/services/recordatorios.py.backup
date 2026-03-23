@@ -1,10 +1,8 @@
 import asyncio
-import os
 from datetime import datetime, timedelta
 from telegram import Bot
 import logging
 from bot.services.tts import TTSService
-from database.models import Usuario, Evento
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +15,19 @@ class RecordatorioService:
     async def verificar_recordatorios(self):
         """Verifica eventos próximos y envía recordatorios"""
         ahora = datetime.now()
+        
+        # Buscar eventos en los próximos 30 minutos
         limite = ahora + timedelta(minutes=30)
         
+        from database.models import Evento
         eventos = self.db.query(Evento).filter(
             Evento.fecha_hora > ahora,
             Evento.fecha_hora <= limite,
-            Evento.completado == False,
-            Evento.recordado == False
+            Evento.completado == False
         ).all()
         
         for evento in eventos:
+            # Calcular minutos restantes
             minutos_restantes = int((evento.fecha_hora - ahora).total_seconds() / 60)
             
             if minutos_restantes <= 5:
@@ -41,6 +42,7 @@ class RecordatorioService:
         if not usuario:
             return
         
+        # Mensaje de texto
         mensaje_texto = (
             f"⏰ **Recordatorio!**\n\n"
             f"📌 {evento.titulo}\n"
@@ -48,12 +50,14 @@ class RecordatorioService:
         )
         
         try:
+            # Enviar mensaje de texto
             await self.bot.send_message(
                 chat_id=usuario.telegram_id,
                 text=mensaje_texto,
                 parse_mode='Markdown'
             )
             
+            # Enviar mensaje de voz si está activado
             if usuario.notificaciones_voz:
                 texto_voz = self.tts.generar_mensaje_recordatorio(evento)
                 archivo_audio = f"recordatorio_{evento.id}.mp3"
@@ -66,15 +70,12 @@ class RecordatorioService:
                         voice=audio
                     )
                 
+                # Limpiar archivo temporal
+                import os
                 if os.path.exists(archivo_audio):
                     os.remove(archivo_audio)
                     
-            # ✅ ESTA ES LA LÍNEA CLAVE QUE FALTABA:
-            evento.recordado = True
-            self.db.commit()
-            
-            logger.info(f"✅ Recordatorio enviado para: {evento.titulo}")
+            logger.info(f"Recordatorio enviado para: {evento.titulo}")
             
         except Exception as e:
-            logger.error(f"❌ Error: {e}")
-            self.db.rollback()
+            logger.error(f"Error enviando recordatorio: {e}")

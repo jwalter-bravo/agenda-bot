@@ -1,9 +1,6 @@
-python-telegram-bot==20.7
-python-dotenv==1.0.0
-psycopg2-binary==2.9.9
+python-telegram-bot==20.6
 sqlalchemy==2.0.23
 apscheduler==3.10.4
-redis==5.0.1
-edge-tts==6.1.9
-dateparser==1.2.0
+httpx==0.25.2
 pytz==2023.3
+python-dotenv==1.0.0

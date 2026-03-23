@@ -37,6 +37,7 @@ class Evento(Base):
     categoria = Column(Enum(Categoria))
     prioridad = Column(Enum(Prioridad))
     completado = Column(Boolean, default=False)
+    recordado = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Tarea(Base):

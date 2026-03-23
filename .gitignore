@@ -1,21 +1,6 @@
-# Entorno virtual
-venv/
-.env
-
-# Archivos de Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-
-# Credenciales sensibles (¡Nunca subir a la nube!)
-credentials.json
-token.pickle
-*.key
-
-# Base de datos (opcional, si quieres respaldarla quita esta línea)
+*.pyc
+venv/
 *.db
-*.sqlite
-
-# Logs
+.env
 *.log

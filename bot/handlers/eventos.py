@@ -155,3 +155,39 @@ async def mostrar_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(mensaje, parse_mode='Markdown')
     else:
         await update.message.reply_text("📅 **Agenda de Hoy**\n\n🎉 ¡No hay eventos! Usa /agregar", parse_mode='Markdown')
+async def mostrar_semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra los eventos de los próximos 7 días"""
+    user = update.effective_user
+    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    desde_la_semana = hoy
+    hasta_la_semana = hoy.replace(day=hoy.day + 7)
+    
+    eventos_semana = db_session.query(Evento).filter(
+        Evento.usuario_id == user.id,
+        Evento.fecha_hora >= desde_la_semana,
+        Evento.fecha_hora < hasta_la_semana,
+        Evento.completado == False
+    ).order_by(Evento.fecha_hora).all()
+    
+    if eventos_semana:
+        mensaje = "📅 **Agenda de la Semana**\n\n"
+        
+        # Agrupar eventos por día
+        eventos_por_dia = {}
+        for e in eventos_semana:
+            dia = e.fecha_hora.strftime('%A %d/%m')
+            if dia not in eventos_por_dia:
+                eventos_por_dia[dia] = []
+            eventos_por_dia[dia].append(e)
+        
+        # Mostrar eventos agrupados
+        for dia, eventos in eventos_por_dia.items():
+            mensaje += f"📌 **{dia}**\n"
+            for e in eventos:
+                emoji = "🔴" if e.prioridad.value == "alta" else "🟡" if e.prioridad.value == "media" else "🟢"
+                mensaje += f"  {emoji} {e.titulo} - {e.fecha_hora.strftime('%H:%M')}\n"
+            mensaje += "\n"
+        
+        await update.message.reply_text(mensaje, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("📅 **Agenda de la Semana**\n\n🎉 ¡No hay eventos! Usa /agregar", parse_mode='Markdown')        

@@ -1,45 +1,55 @@
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 from bot.handlers import eventos
+from bot.handlers.config import toggle_voz
+from bot.handlers.menu import configurar_menu
 from config import Config
+from bot.services.recordatorios import RecordatorioService
+from apscheduler.schedulers.background import BackgroundScheduler
+from database.models import init_db
 
-# Configurar logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Handler simple para /start
 async def start(update: Update, context):
-    """Mensaje de bienvenida"""
+    logger.info(f"📨 Recibido /start de {update.effective_user.id}")
     await update.message.reply_text(
         "🎉 ¡Bienvenido a AgendaBot!\n\n"
         "Comandos disponibles:\n"
         "/agregar - Crear un nuevo evento\n"
         "/hoy - Ver agenda de hoy\n"
+        "/voz - Activar/desactivar notificaciones de voz\n"
         "/start - Mostrar este mensaje\n\n"
         "¡Comienza agregando tu primer evento con /agregar!"
     )
 
+async def error_handler(update: Update, context):
+    logger.error(f"❌ Error: {context.error}")
+
 def main():
-    """Inicia el bot"""
-    # Verificar token
     if not Config.BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN no configurado en .env")
+        logger.error("❌ BOT_TOKEN no configurado")
         return
     
-    logger.info(f"🤖 Iniciando AgendaBot con token: {Config.BOT_TOKEN[:10]}...")
+    logger.info(f"🤖 Iniciando AgendaBot...")
     
-    # Crear aplicación
     application = Application.builder().token(Config.BOT_TOKEN).build()
     
-    # Registrar handlers básicos
+    # Configurar menú persistente
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(configurar_menu(application))
+    
+    # Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('hoy', eventos.mostrar_hoy))
+    application.add_handler(CommandHandler('voz', toggle_voz))
     
-    # Conversación para agregar eventos
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('agregar', eventos.agregar_evento_start)],
         states={
@@ -53,8 +63,20 @@ def main():
     )
     
     application.add_handler(conv_handler)
+    application.add_error_handler(error_handler)
     
-    # Iniciar el bot
+    # Iniciar recordatorios
+    db_session = init_db(Config.DATABASE_URL)
+    recordatorios = RecordatorioService(Config.BOT_TOKEN, db_session)
+    
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        lambda: asyncio.run(recordatorios.verificar_recordatorios()),
+        'interval',
+        minutes=1
+    )
+    scheduler.start()
+    
     logger.info("🚀 Bot iniciado. Esperando mensajes...")
     application.run_polling()
 

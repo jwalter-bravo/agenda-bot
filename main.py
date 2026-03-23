@@ -1,8 +1,8 @@
 import logging
 import asyncio
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
-from bot.handlers import eventos
+from bot.handlers import eventos, tareas
 from bot.handlers.config import toggle_voz
 from bot.handlers.menu import configurar_menu
 from config import Config
@@ -23,6 +23,10 @@ async def start(update: Update, context):
         "Comandos disponibles:\n"
         "/agregar - Crear un nuevo evento\n"
         "/hoy - Ver agenda de hoy\n"
+        "/semana - Ver agenda de la semana\n"
+        "/tareas - Ver mis tareas pendientes\n"
+        "/tarea_agregar - Agregar nueva tarea\n"
+        "/stats - Ver tus estadísticas\n"
         "/voz - Activar/desactivar notificaciones de voz\n"
         "/start - Mostrar este mensaje\n\n"
         "¡Comienza agregando tu primer evento con /agregar!"
@@ -30,6 +34,22 @@ async def start(update: Update, context):
 
 async def error_handler(update: Update, context):
     logger.error(f"❌ Error: {context.error}")
+
+def job_recordatorios():
+    from database.models import init_db
+    from bot.services.recordatorios import RecordatorioService
+    import asyncio
+    
+    db = init_db(Config.DATABASE_URL)
+    recordatorios = RecordatorioService(Config.BOT_TOKEN, db)
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(recordatorios.verificar_recordatorios())
+    finally:
+        loop.close()
+        db.close()
 
 def main():
     if not Config.BOT_TOKEN:
@@ -40,15 +60,23 @@ def main():
     
     application = Application.builder().token(Config.BOT_TOKEN).build()
     
-    # Configurar menú persistente
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(configurar_menu(application))
     
-    # Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('hoy', eventos.mostrar_hoy))
+    application.add_handler(CommandHandler('semana', eventos.mostrar_semana))
     application.add_handler(CommandHandler('voz', toggle_voz))
+    
+    application.add_handler(CommandHandler('tareas', tareas.mostrar_tareas))
+    application.add_handler(CommandHandler('tarea_completar', tareas.tarea_completar))
+    application.add_handler(CommandHandler('stats', tareas.mostrar_stats))
+    application.add_handler(CommandHandler('buscar', tareas.buscar_tarea))
+    application.add_handler(CommandHandler('exportar', tareas.exportar_datos))
+    application.add_handler(CommandHandler('buscar', tareas.buscar_tarea))
+    application.add_handler(CommandHandler('exportar', tareas.exportar_datos))
+    application.add_handler(CommandHandler('eliminar', tareas.eliminar_tarea_start))
     
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('agregar', eventos.agregar_evento_start)],
@@ -61,24 +89,60 @@ def main():
         },
         fallbacks=[CommandHandler('cancelar', eventos.cancelar)]
     )
-    
     application.add_handler(conv_handler)
+    
+    conv_tareas = ConversationHandler(
+        entry_points=[CommandHandler('tarea_agregar', tareas.tarea_agregar_start)],
+        states={
+            tareas.TITULO: [MessageHandler(filters.TEXT & ~filters.COMMAND, tareas.tarea_titulo)],
+            tareas.DESCRIPCION: [MessageHandler(filters.TEXT & ~filters.COMMAND, tareas.tarea_descripcion)],
+            tareas.FECHA: [MessageHandler(filters.TEXT & ~filters.COMMAND, tareas.tarea_fecha)],
+            tareas.CATEGORIA: [CallbackQueryHandler(tareas.tarea_categoria)],
+            tareas.PRIORIDAD: [CallbackQueryHandler(tareas.tarea_prioridad)],
+            tareas.CONFIRMAR: [CallbackQueryHandler(tareas.tarea_confirmar)],
+        },
+        fallbacks=[CommandHandler('cancelar', tareas.cancelar_tarea)],
+        per_user=True,
+        per_chat=True,
+        per_message=False
+    )
+    application.add_handler(conv_tareas)
+    
+    # ConversationHandler para editar tareas
+    conv_editar = ConversationHandler(
+        entry_points=[CommandHandler('editar', tareas.editar_tarea_start)],
+        states={
+            tareas.EDITAR_SELECCIONAR: [CallbackQueryHandler(tareas.editar_tarea_seleccionar, pattern='^edit_')],
+            tareas.EDITAR_CAMPO: [CallbackQueryHandler(tareas.editar_tarea_campo, pattern='^edit_')],
+            tareas.EDITAR_VALOR: [
+                CallbackQueryHandler(tareas.editar_tarea_campo, pattern='^edit_'),
+                CallbackQueryHandler(tareas.editar_tarea_guardar, pattern='^prioridad_'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, tareas.editar_tarea_guardar)
+            ],
+        },
+        fallbacks=[CommandHandler('cancelar', tareas.editar_tarea_cancelar)],
+        per_user=True,
+        per_chat=True,
+        per_message=False
+    )
+    application.add_handler(conv_editar)
+
+    
+    application.add_handler(CallbackQueryHandler(tareas.tarea_completar_callback, pattern='^completar_'))
+    application.add_handler(CallbackQueryHandler(tareas.eliminar_tarea_confirmar, pattern='^del_[0-9]+$'))
+    application.add_handler(CallbackQueryHandler(tareas.eliminar_tarea_final, pattern='^del_(confirmar|cancel)$'))
+    
     application.add_error_handler(error_handler)
     
-    # Iniciar recordatorios
-    db_session = init_db(Config.DATABASE_URL)
-    recordatorios = RecordatorioService(Config.BOT_TOKEN, db_session)
-    
     scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        lambda: asyncio.run(recordatorios.verificar_recordatorios()),
-        'interval',
-        minutes=1
-    )
+    scheduler.add_job(job_recordatorios, 'interval', minutes=1)
     scheduler.start()
+    logger.info("⏰ Servicio de recordatorios iniciado (cada 1 minuto)")
     
     logger.info("🚀 Bot iniciado. Esperando mensajes...")
     application.run_polling()
 
 if __name__ == '__main__':
     main()
+
+    
