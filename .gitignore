@@ -16,3 +16,10 @@ ahora,
 asyncio
 os
 logging
+
+# Archivos de respaldo del editor
+*.save
+*.save.1
+*.save.2
+*.backup
+*~

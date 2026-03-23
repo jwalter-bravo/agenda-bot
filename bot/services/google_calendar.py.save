@@ -1,2 +1,0 @@
-mkdir -p bot/services
-nano bot/services/google_calendar.py
