@@ -4,3 +4,15 @@ venv/
 *.db
 .env
 *.log
+
+# Credenciales sensibles
+credentials.json
+token.pickle
+*.p12
+service_account.json
+
+# Archivos temporales extraños
+ahora,
+asyncio
+os
+logging
