@@ -18,6 +18,8 @@ class RecordatorioService:
         """Verifica eventos próximos y envía recordatorios"""
         ahora = datetime.now()
         limite = ahora + timedelta(minutes=30)
+    logger.info(f"🔍 [DEBUG] Ahora: {ahora}")
+    logger.info(f"🔍 [DEBUG] Límite: {limite}")
         
         eventos = self.db.query(Evento).filter(
             Evento.fecha_hora > ahora - timedelta(minutes=5),  # ✅ CORRECTO,
