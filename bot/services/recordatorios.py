@@ -20,7 +20,7 @@ class RecordatorioService:
         limite = ahora + timedelta(minutes=30)
         
         eventos = self.db.query(Evento).filter(
-            Evento.fecha_hora > ahora,
+            Evento.fecha_hora > ahora - timedelta(minutes=5),  # ✅ CORRECTO,
             Evento.fecha_hora <= limite,
             Evento.completado == False,
             Evento.recordado == False
