@@ -84,3 +84,5 @@ class RecordatorioService:
             self.db.rollback()
 
 # FIX-FORCE-1774493915
+
+# FIX-FORCE-1774494106
