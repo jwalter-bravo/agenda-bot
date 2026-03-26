@@ -82,3 +82,5 @@ class RecordatorioService:
         except Exception as e:
             logger.error(f"❌ Error: {e}")
             self.db.rollback()
+
+# FIX-FORCE-1774493915
