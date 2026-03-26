@@ -18,20 +18,23 @@ class RecordatorioService:
         """Verifica eventos próximos y envía recordatorios"""
         ahora = datetime.now()
         limite = ahora + timedelta(minutes=30)
-    logger.info(f"🔍 [DEBUG] Ahora: {ahora}")
-    logger.info(f"🔍 [DEBUG] Límite: {limite}")
+        
+        logger.info(f"🔍 Buscando eventos entre {ahora} y {limite}")
         
         eventos = self.db.query(Evento).filter(
-            Evento.fecha_hora > ahora - timedelta(minutes=5),  # ✅ CORRECTO,
+            Evento.fecha_hora > ahora - timedelta(minutes=5),
             Evento.fecha_hora <= limite,
             Evento.completado == False,
             Evento.recordado == False
         ).all()
         
+        logger.info(f"📊 Eventos encontrados: {len(eventos)}")
+        
         for evento in eventos:
             minutos_restantes = int((evento.fecha_hora - ahora).total_seconds() / 60)
+            logger.info(f"⏰ Evento: {evento.titulo} - Falta: {minutos_restantes} min")
             
-            if minutos_restantes <= 5:
+            if minutos_restantes <= 30:
                 await self.enviar_recordatorio(evento, minutos_restantes)
     
     async def enviar_recordatorio(self, evento, minutos):
@@ -71,7 +74,6 @@ class RecordatorioService:
                 if os.path.exists(archivo_audio):
                     os.remove(archivo_audio)
                     
-            # ✅ ESTA ES LA LÍNEA CLAVE QUE FALTABA:
             evento.recordado = True
             self.db.commit()
             
