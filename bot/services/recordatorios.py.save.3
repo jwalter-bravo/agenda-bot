@@ -1,0 +1,60 @@
+     ).all()
+        
+        logger.info(f"📊 Eventos encontrados: {len(eventos)}")
+        
+        for evento in eventos:
+            minutos_restantes = int((evento.fecha_hora - ahora).total_seconds() / 60)
+            logger.info(f"⏰ Evento: {evento.titulo} - Falta: {minutos_restantes} min")
+            
+            if minutos_restantes <= 30:
+                await self.enviar_recordatorio(evento, minutos_restantes)
+    
+    async def enviar_recordatorio(self, evento, minutos):
+        """Envía recordatorio por texto y voz"""
+        usuario = self.db.query(Usuario).filter(
+            Usuario.telegram_id == evento.usuario_id
+        ).first()
+        
+        if not usuario:
+            return
+        
+        mensaje_texto = (
+            f"⏰ **Recordatorio!**\n\n"
+            f"📌 {evento.titulo}\n"
+            f"🕐 Comienza en {minutos} minutos"
+        )
+        
+        try:
+            await self.bot.send_message(
+                chat_id=usuario.telegram_id,
+                text=mensaje_texto,
+                parse_mode='Markdown'
+            )
+            
+            if usuario.notificaciones_voz:
+                texto_voz = self.tts.generar_mensaje_recordatorio(evento)
+                archivo_audio = f"recordatorio_{evento.id}.mp3"
+                
+                await self.tts.texto_a_voz(texto_voz, archivo_audio)
+                
+                with open(archivo_audio, 'rb') as audio:
+                    await self.bot.send_voice(
+                        chat_id=usuario.telegram_id,
+                        voice=audio
+                    )
+                
+                if os.path.exists(archivo_audio):
+                    os.remove(archivo_audio)
+                    
+            evento.recordado = True
+            self.db.commit()
+            
+            logger.info(f"✅ Recordatorio enviado para: {evento.titulo}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error: {e}")
+            self.db.rollback()
+
+# FIX-FORCE-1774493915
+
+# FIX-FORCE-1774494106

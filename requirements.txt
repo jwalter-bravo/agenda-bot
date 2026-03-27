@@ -1,9 +1,9 @@
-python-telegram-bot==20.6
+python-telegram-bot==20.7
 sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
 apscheduler==3.10.4
-httpx==0.25.2
-pytz==2023.3
-python-dotenv==1.0.0
-dateparser
-
-edge-tts
+pytz>=2024.1
+edge-tts==7.2.7
+google-api-python-client==2.111.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0

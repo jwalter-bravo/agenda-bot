@@ -1,88 +1,74 @@
-import asyncio
-import os
-from datetime import datetime, timedelta
-from telegram import Bot
+# bot/services/recordatorios.py
 import logging
-from bot.services.tts import TTSService
-from database.models import Usuario, Evento
+from datetime import datetime, timedelta, timezone
+from sqlalchemy.orm import Session
+import pytz
 
 logger = logging.getLogger(__name__)
 
 class RecordatorioService:
-    def __init__(self, bot_token, db_session):
-        self.bot = Bot(token=bot_token)
-        self.db = db_session
-        self.tts = TTSService()
+    def __init__(self, bot, db: Session):
+        self.bot = bot
+        self.db = db
     
     async def verificar_recordatorios(self):
-        """Verifica eventos próximos y envía recordatorios"""
-        ahora = datetime.now()
-        limite = ahora + timedelta(minutes=30)
-        
-        logger.info(f"🔍 Buscando eventos entre {ahora} y {limite}")
-        
-        eventos = self.db.query(Evento).filter(
-            Evento.fecha_hora > ahora - timedelta(minutes=5),
-            Evento.fecha_hora <= limite,
-            Evento.completado == False,
-            Evento.recordado == False
-        ).all()
-        
-        logger.info(f"📊 Eventos encontrados: {len(eventos)}")
-        
-        for evento in eventos:
-            minutos_restantes = int((evento.fecha_hora - ahora).total_seconds() / 60)
-            logger.info(f"⏰ Evento: {evento.titulo} - Falta: {minutos_restantes} min")
-            
-            if minutos_restantes <= 30:
-                await self.enviar_recordatorio(evento, minutos_restantes)
-    
-    async def enviar_recordatorio(self, evento, minutos):
-        """Envía recordatorio por texto y voz"""
-        usuario = self.db.query(Usuario).filter(
-            Usuario.telegram_id == evento.usuario_id
-        ).first()
-        
-        if not usuario:
-            return
-        
-        mensaje_texto = (
-            f"⏰ **Recordatorio!**\n\n"
-            f"📌 {evento.titulo}\n"
-            f"🕐 Comienza en {minutos} minutos"
-        )
-        
+        """Verifica y envía recordatorios de eventos próximos"""
         try:
+            # ✅ USAR UTC SIEMPRE (Railway usa UTC)
+            ahora_utc = datetime.now(timezone.utc)
+            desde = ahora_utc
+            hasta = ahora_utc + timedelta(minutes=30)  # Ventana de 30 minutos
+            
+            logger.info(f"🔍 Buscando eventos entre {desde} y {hasta}")
+            
+            # Importar Evento aquí para evitar circular imports
+            from database.models import Evento
+            
+            # Buscar eventos en el rango de tiempo (en UTC)
+            eventos = self.db.query(Evento).filter(
+                Evento.fecha_hora >= desde,
+                Evento.fecha_hora <= hasta,
+                Evento.recordado == False
+            ).all()
+            
+            logger.info(f"📊 Eventos encontrados: {len(eventos)}")
+            
+            for evento in eventos:
+                await self.enviar_recordatorio(evento)
+                evento.recordado = True
+            
+            self.db.commit()
+            
+        except Exception as e:
+            logger.error(f"❌ Error en verificar_recordatorios: {e}")
+            self.db.rollback()
+    
+    async def enviar_recordatorio(self, evento):
+        """Envía recordatorio de un evento"""
+        try:
+            # Convertir de UTC a Argentina para mostrar
+            ba_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+            if evento.fecha_hora.tzinfo is None:
+                fecha_utc = evento.fecha_hora.replace(tzinfo=timezone.utc)
+            else:
+                fecha_utc = evento.fecha_hora
+            fecha_arg = fecha_utc.astimezone(ba_tz)
+            
+            mensaje = (
+                f"🔔 *Recordatorio:*\n\n"
+                f"📌 *{evento.titulo}*\n"
+                f"📅 Fecha: {fecha_arg.strftime('%d/%m/%Y %H:%M')} (hora Argentina)\n"
+                f"🔖 Categoría: {evento.categoria}\n"
+                f"⚡ Prioridad: {evento.prioridad}"
+            )
+            
             await self.bot.send_message(
-                chat_id=usuario.telegram_id,
-                text=mensaje_texto,
+                chat_id=evento.usuario_id,
+                text=mensaje,
                 parse_mode='Markdown'
             )
             
-            if usuario.notificaciones_voz:
-                texto_voz = self.tts.generar_mensaje_recordatorio(evento)
-                archivo_audio = f"recordatorio_{evento.id}.mp3"
-                
-                await self.tts.texto_a_voz(texto_voz, archivo_audio)
-                
-                with open(archivo_audio, 'rb') as audio:
-                    await self.bot.send_voice(
-                        chat_id=usuario.telegram_id,
-                        voice=audio
-                    )
-                
-                if os.path.exists(archivo_audio):
-                    os.remove(archivo_audio)
-                    
-            evento.recordado = True
-            self.db.commit()
-            
-            logger.info(f"✅ Recordatorio enviado para: {evento.titulo}")
+            logger.info(f"✅ Recordatorio enviado a usuario {evento.usuario_id}")
             
         except Exception as e:
-            logger.error(f"❌ Error: {e}")
-            self.db.rollback()
-
-# FIX-FORCE-1774493915
-
-# FIX-FORCE-1774494106
+            logger.error(f"❌ Error al enviar recordatorio: {e}")

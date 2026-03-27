@@ -1,193 +1,167 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+# bot/handlers/eventos.py
+from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from datetime import datetime
-import dateparser
-from database.models import Evento, Categoria, Prioridad, init_db
-from config import Config
+from datetime import datetime, timezone
+import pytz
 import logging
 
 logger = logging.getLogger(__name__)
 
-NOMBRE, FECHA_HORA, CATEGORIA, PRIORIDAD, CONFIRMAR = range(5)
+# Estados del ConversationHandler
+TITULO, FECHA, HORA, CATEGORIA, PRIORIDAD, CONFIRMAR = range(6)
 
-db_session = init_db(Config.DATABASE_URL)
+# Datos temporales del evento
+evento_temp = {}
 
-async def agregar_evento_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def convertir_a_utc(fecha_argentina):
+    """Convierte fecha de Argentina a UTC"""
+    ba_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    fecha_local = ba_tz.localize(fecha_argentina)
+    fecha_utc = fecha_local.astimezone(timezone.utc)
+    return fecha_utc.replace(tzinfo=None)  # Guardar sin timezone info
+
+async def inicio_agregar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia el proceso de agregar evento"""
+    evento_temp.clear()
     await update.message.reply_text(
-        "📅 Vamos a agregar un evento.\n\n"
-        "📝 ¿Cuál es el título del evento?"
+        "📝 *Nuevo Evento*\n\n"
+        "Por favor, ingresá el título del evento:",
+        parse_mode='Markdown'
     )
-    return NOMBRE
+    return TITULO
 
-async def agregar_evento_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['evento'] = {'titulo': update.message.text}
+async def recibir_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recibe el título del evento"""
+    evento_temp['titulo'] = update.message.text
     await update.message.reply_text(
-        "⏰ ¿Cuándo es el evento?\n\n"
-        "Ejemplos:\n"
-        "- Mañana a las 15:00\n"
-        "- Viernes 10 de mayo 9am\n"
-        "- 25/12/2024 20:00"
+        "📅 Ahora ingresá la fecha (ej: hoy, mañana, 27/03):"
     )
-    return FECHA_HORA
+    return FECHA
 
-async def agregar_evento_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    fecha_texto = update.message.text
-    fecha_parseada = dateparser.parse(
-        fecha_texto,
-        settings={'PREFER_DATES_FROM': 'future', 'TIMEZONE': 'America/Argentina/Buenos_Aires'}
-    )
+async def recibir_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recibe y procesa la fecha"""
+    texto = update.message.text.lower()
+    ahora_ba = datetime.now(pytz.timezone('America/Argentina/Buenos_Aires'))
     
-    if not fecha_parseada:
-        await update.message.reply_text(
-            "❌ No entendí la fecha. Intenta con otro formato:\n"
-            "Mañana 3pm\n"
-            "Viernes 10am"
+    if texto == 'hoy':
+        fecha = ahora_ba.date()
+    elif texto == 'mañana':
+        from datetime import timedelta
+        fecha = (ahora_ba + timedelta(days=1)).date()
+    else:
+        try:
+            partes = texto.split('/')
+            fecha = datetime(ahora_ba.year, int(partes[1]), int(partes[0])).date()
+        except:
+            await update.message.reply_text("❌ Fecha inválida. Usá formato DD/MM o 'hoy'/'mañana':")
+            return FECHA
+    
+    evento_temp['fecha'] = fecha
+    await update.message.reply_text(
+        "🕐 Ahora ingresá la hora (ej: 15:00):"
+    )
+    return HORA
+
+async def recibir_hora(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recibe la hora y convierte a UTC"""
+    try:
+        partes = update.message.text.split(':')
+        hora = datetime.combine(
+            evento_temp['fecha'],
+            datetime.strptime(f"{partes[0]}:{partes[1]}", "%H:%M").time()
         )
-        return FECHA_HORA
-    
-    context.user_data['evento']['fecha_hora'] = fecha_parseada
-    
-    keyboard = [
-        [InlineKeyboardButton("📁 Personal", callback_data="personal")],
-        [InlineKeyboardButton("💼 Laboral", callback_data="laboral")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text("🏷️ Selecciona la categoría:", reply_markup=reply_markup)
-    return CATEGORIA
+        
+        # ✅ CONVERTIR A UTC ANTES DE GUARDAR
+        fecha_utc = convertir_a_utc(hora)
+        evento_temp['fecha_hora_utc'] = fecha_utc
+        
+        await update.message.reply_text(
+            "🔖 Categorías disponibles:\n"
+            "• PERSONAL\n"
+            "• LABORAL\n\n"
+            "Elegí una:"
+        )
+        return CATEGORIA
+    except:
+        await update.message.reply_text("❌ Hora inválida. Usá formato HH:MM:")
+        return HORA
 
-async def agregar_evento_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['evento']['categoria'] = query.data
+async def recibir_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recibe la categoría"""
+    categoria = update.message.text.upper()
+    if categoria not in ['PERSONAL', 'LABORAL']:
+        await update.message.reply_text("❌ Categoría inválida. Elegí PERSONAL o LABORAL:")
+        return CATEGORIA
     
-    keyboard = [
-        [InlineKeyboardButton("🔴 Alta", callback_data="alta")],
-        [InlineKeyboardButton("🟡 Media", callback_data="media")],
-        [InlineKeyboardButton("🟢 Baja", callback_data="baja")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text("⚡ Selecciona la prioridad:", reply_markup=reply_markup)
+    evento_temp['categoria'] = categoria
+    await update.message.reply_text(
+        "⚡ Prioridades disponibles:\n"
+        "• ALTA\n"
+        "• MEDIA\n"
+        "• BAJA\n\n"
+        "Elegí una:"
+    )
     return PRIORIDAD
 
-async def agregar_evento_prioridad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['evento']['prioridad'] = query.data
-    evento = context.user_data['evento']
+async def recibir_prioridad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recibe la prioridad"""
+    prioridad = update.message.text.upper()
+    if prioridad not in ['ALTA', 'MEDIA', 'BAJA']:
+        await update.message.reply_text("❌ Prioridad inválida. Elegí ALTA, MEDIA o BAJA:")
+        return PRIORIDAD
     
-    resumen = (
-        f"✅ **Resumen del evento:**\n\n"
-        f"📌 **Título:** {evento['titulo']}\n"
-        f"📅 **Fecha:** {evento['fecha_hora'].strftime('%A %d/%m/%Y %H:%M')}\n"
-        f"🏷️ **Categoría:** {evento['categoria'].capitalize()}\n"
-        f"⚡ **Prioridad:** {evento['prioridad'].capitalize()}\n\n"
-        f"¿Confirmar creación?"
+    evento_temp['prioridad'] = prioridad
+    
+    # Mostrar resumen
+    ba_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    fecha_arg = evento_temp['fecha_hora_utc'].replace(tzinfo=timezone.utc).astimezone(ba_tz)
+    
+    await update.message.reply_text(
+        f"📋 *Resumen del Evento:*\n\n"
+        f"📌 Título: {evento_temp['titulo']}\n"
+        f"📅 Fecha: {fecha_arg.strftime('%d/%m/%Y %H:%M')} (hora Argentina)\n"
+        f"🔖 Categoría: {evento_temp['categoria']}\n"
+        f"⚡ Prioridad: {evento_temp['prioridad']}\n\n"
+        f"¿Confirmás? (Sí/No):",
+        parse_mode='Markdown'
     )
-    
-    keyboard = [
-        [InlineKeyboardButton("✅ Sí", callback_data="confirmar")],
-        [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(resumen, reply_markup=reply_markup, parse_mode='Markdown')
     return CONFIRMAR
 
-async def agregar_evento_confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+async def confirmar_evento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Confirma y guarda el evento"""
+    if update.message.text.lower() not in ['si', 'sí', 'yes']:
+        await update.message.reply_text("❌ Evento cancelado.")
+        return ConversationHandler.END
     
-    if query.data == "confirmar":
-        evento_data = context.user_data['evento']
-        user = update.effective_user
+    try:
+        from database.models import Evento
         
-        try:
-            nuevo_evento = Evento(
-                usuario_id=user.id,
-                titulo=evento_data['titulo'],
-                fecha_hora=evento_data['fecha_hora'],
-                categoria=Categoria(evento_data['categoria']),
-                prioridad=Prioridad(evento_data['prioridad'])
-            )
-            db_session.add(nuevo_evento)
-            db_session.commit()
-            
-            await query.edit_message_text(
-                f"✅ ¡Evento guardado!\n\n"
-                f"📌 {evento_data['titulo']}\n"
-                f"📅 {evento_data['fecha_hora'].strftime('%d/%m/%Y %H:%M')}",
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            db_session.rollback()
-            logger.error(f"Error: {e}")
-            await query.edit_message_text("❌ Error al guardar.")
-    else:
-        await query.edit_message_text("❌ Cancelado.")
+        evento = Evento(
+            titulo=evento_temp['titulo'],
+            fecha_hora=evento_temp['fecha_hora_utc'],  # ✅ Guardar en UTC
+            usuario_id=update.message.from_user.id,
+            categoria=evento_temp['categoria'],
+            prioridad=evento_temp['prioridad'],
+            recordado=False
+        )
+        
+        context.bot_data['db'].add(evento)
+        context.bot_data['db'].commit()
+        
+        await update.message.reply_text(
+            "✅ *¡Evento guardado exitosamente!*\n\n"
+            "Te enviaré un recordatorio 30 minutos antes.",
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error al guardar evento: {e}")
+        await update.message.reply_text("❌ Error al guardar el evento. Intentá de nuevo.")
     
-    context.user_data.clear()
     return ConversationHandler.END
 
 async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Cancelado.")
-    context.user_data.clear()
+    """Cancela el proceso"""
+    evento_temp.clear()
+    await update.message.reply_text("❌ Operación cancelada.")
     return ConversationHandler.END
-
-async def mostrar_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    manana = hoy.replace(day=hoy.day + 1)
-    
-    eventos_hoy = db_session.query(Evento).filter(
-        Evento.usuario_id == user.id,
-        Evento.fecha_hora >= hoy,
-        Evento.fecha_hora < manana,
-        Evento.completado == False
-    ).order_by(Evento.fecha_hora).all()
-    
-    if eventos_hoy:
-        mensaje = "📅 **Agenda de Hoy**\n\n"
-        for e in eventos_hoy:
-            emoji = "🔴" if e.prioridad.value == "alta" else "🟡" if e.prioridad.value == "media" else "🟢"
-            mensaje += f"{emoji} {e.titulo} - {e.fecha_hora.strftime('%H:%M')}\n"
-        await update.message.reply_text(mensaje, parse_mode='Markdown')
-    else:
-        await update.message.reply_text("📅 **Agenda de Hoy**\n\n🎉 ¡No hay eventos! Usa /agregar", parse_mode='Markdown')
-async def mostrar_semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra los eventos de los próximos 7 días"""
-    user = update.effective_user
-    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    desde_la_semana = hoy
-    hasta_la_semana = hoy.replace(day=hoy.day + 7)
-    
-    eventos_semana = db_session.query(Evento).filter(
-        Evento.usuario_id == user.id,
-        Evento.fecha_hora >= desde_la_semana,
-        Evento.fecha_hora < hasta_la_semana,
-        Evento.completado == False
-    ).order_by(Evento.fecha_hora).all()
-    
-    if eventos_semana:
-        mensaje = "📅 **Agenda de la Semana**\n\n"
-        
-        # Agrupar eventos por día
-        eventos_por_dia = {}
-        for e in eventos_semana:
-            dia = e.fecha_hora.strftime('%A %d/%m')
-            if dia not in eventos_por_dia:
-                eventos_por_dia[dia] = []
-            eventos_por_dia[dia].append(e)
-        
-        # Mostrar eventos agrupados
-        for dia, eventos in eventos_por_dia.items():
-            mensaje += f"📌 **{dia}**\n"
-            for e in eventos:
-                emoji = "🔴" if e.prioridad.value == "alta" else "🟡" if e.prioridad.value == "media" else "🟢"
-                mensaje += f"  {emoji} {e.titulo} - {e.fecha_hora.strftime('%H:%M')}\n"
-            mensaje += "\n"
-        
-        await update.message.reply_text(mensaje, parse_mode='Markdown')
-    else:
-        await update.message.reply_text("📅 **Agenda de la Semana**\n\n🎉 ¡No hay eventos! Usa /agregar", parse_mode='Markdown')        
