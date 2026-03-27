@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from datetime import datetime
-import dateparser
+# import dateparser
 from database.models import Tarea, Categoria, Prioridad, init_db
 from config import Config
 import logging
