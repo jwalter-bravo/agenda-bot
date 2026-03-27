@@ -65,7 +65,7 @@ def main():
     loop.run_until_complete(configurar_menu(application))
     
     application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('hoy', eventos.mostrar_hoy))
+   # application.add_handler(CommandHandler('hoy', eventos.mostrar_hoy))
     application.add_handler(CommandHandler('semana', eventos.mostrar_semana))
     application.add_handler(CommandHandler('voz', toggle_voz))
     
