@@ -66,7 +66,7 @@ def main():
     
     application.add_handler(CommandHandler('start', start))
    # application.add_handler(CommandHandler('hoy', eventos.mostrar_hoy))
-    application.add_handler(CommandHandler('semana', eventos.mostrar_semana))
+   # application.add_handler(CommandHandler('semana', eventos.mostrar_semana))
     application.add_handler(CommandHandler('voz', toggle_voz))
     
     application.add_handler(CommandHandler('tareas', tareas.mostrar_tareas))
@@ -79,10 +79,10 @@ def main():
     application.add_handler(CommandHandler('eliminar', tareas.eliminar_tarea_start))
     
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('agregar', eventos.agregar_evento_start)],
+       # entry_points=[CommandHandler('agregar', eventos.agregar_evento_start)],
         states={
-            eventos.NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, eventos.agregar_evento_nombre)],
-            eventos.FECHA_HORA: [MessageHandler(filters.TEXT & ~filters.COMMAND, eventos.agregar_evento_fecha)],
+        #    eventos.NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, eventos.agregar_evento_nombre)],
+        #    eventos.FECHA_HORA: [MessageHandler(filters.TEXT & ~filters.COMMAND, eventos.agregar_evento_fecha)],
             eventos.CATEGORIA: [CallbackQueryHandler(eventos.agregar_evento_categoria)],
             eventos.PRIORIDAD: [CallbackQueryHandler(eventos.agregar_evento_prioridad)],
             eventos.CONFIRMAR: [CallbackQueryHandler(eventos.agregar_evento_confirmar)],
